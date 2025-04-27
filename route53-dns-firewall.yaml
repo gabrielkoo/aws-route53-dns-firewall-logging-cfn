@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Route 53 Resolver DNS Firewall with VPC‑level DNS **query logging**.
+  Logs **all** DNS queries for a supplied VPC to CloudWatch Logs.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID to protect and monitor.
+  AssociationPriority:
+    Type: Number
+    Default: 150
+    Description: 'Priority (100‑9900) for the VPC firewall association; must be unique within the VPC.'
+    MinValue: 100
+    MaxValue: 9900
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: Retention (days) for the CloudWatch Logs group.
+
+Resources:
+  ################################################################################
+  # CloudWatch Logs group – holds every DNS query for the VPC
+  ################################################################################
+  QueryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: !Ref LogRetentionDays
+
+  ################################################################################
+  # DNS Firewall – sample block list & inline rule
+  ################################################################################
+  BlockedDomains:
+    Type: AWS::Route53Resolver::FirewallDomainList
+    Properties:
+      Name: blocked-domains
+      Domains:
+        - badexample.com
+        - malware.example
+        - phishing.test
+
+  FirewallRuleGroup:
+    Type: AWS::Route53Resolver::FirewallRuleGroup
+    Properties:
+      Name: vpc-dns-firewall-rule-group
+      FirewallRules:
+        - FirewallDomainListId: !Ref BlockedDomains
+          Priority: 10
+          Action: BLOCK
+          BlockResponse: NODATA
+
+  FirewallAssociation:
+    Type: AWS::Route53Resolver::FirewallRuleGroupAssociation
+    Properties:
+      FirewallRuleGroupId: !Ref FirewallRuleGroup
+      VpcId: !Ref VpcId
+      Priority: !Ref AssociationPriority
+      Name: vpc-dns-firewall-association
+      # Note: Priority must be between 100‑9900 but **not** equal to the endpoints.
+
+  ################################################################################
+  # Resolver Query Logging – captures **all** DNS queries from the VPC
+  ################################################################################
+  DNSQueryLogConfig:
+    Type: AWS::Route53Resolver::ResolverQueryLoggingConfig
+    Properties:
+      Name: vpc-dns-query-logs
+      DestinationArn: !GetAtt QueryLogGroup.Arn
+
+  DNSQueryLogAssociation:
+    Type: AWS::Route53Resolver::ResolverQueryLoggingConfigAssociation
+    Properties:
+      ResolverQueryLogConfigId: !Ref DNSQueryLogConfig
+      ResourceId: !Ref VpcId
+
+  # Resource policy so Route 53 Resolver can write to the log group
+  DNSQueryLogsPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: route53resolver-query-logs
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "Route53ResolverQueryLogsToCloudWatch",
+              "Effect": "Allow",
+              "Principal": { "Service": "route53resolver.amazonaws.com" },
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Resource": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${QueryLogGroup}:*"
+            }
+          ]
+        }
+
+Outputs:
+  FirewallRuleGroupId:
+    Description: ID of the DNS Firewall Rule Group
+    Value: !Ref FirewallRuleGroup
+  QueryLogConfigId:
+    Description: ID of the Resolver Query Log Config
+    Value: !Ref DNSQueryLogConfig
+  QueryLogGroupName:
+    Description: CloudWatch Logs group for DNS query logs
+    Value: !Ref QueryLogGroup
