@@ -28,3 +28,13 @@ aws cloudformation deploy \
       VpcId=vpc-0123456789abcdef0 \
       AssociationPriority=150 \
       LogRetentionDays=30
+
+Parameter	| Default |	Description
+---|---|---
+VpcId	| —	| Required – Target VPC to protect & monitor
+AssociationPriority	| 150 |	Firewall priority (100-9900, unique per VPC)
+LogRetentionDays | 30 | CloudWatch retention in days
+
+## 🛠 Changing the block list
+
+Edit `BlockedDomains` in `route53-dns-firewall.yaml`, or pass a different `FirewallDomainListId` if you manage domain lists elsewhere.
